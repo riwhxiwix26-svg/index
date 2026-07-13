@@ -1,1 +1,98 @@
+import streamlit as st
+import pandas as pd
+
+# 1. 페이지 설정
+st.set_page_config(
+    page_title="해안 저지대 침수 위험 모니터링",
+    page_icon="🌊",
+    layout="wide"
+)
+
+st.title("🌊 해안 저지대 침수 위험 분석 웹앱")
+st.markdown("본 웹앱은 해안 지역의 시간별 데이터 분석을 통해 저지대 침수 위험성을 시각화합니다.")
+
+# 2. 데이터 불러오기 (사용자 가이드에 맞춘 설정)
+# [ 파일이름.csv ] 부분에 실제 사용하실 파일명을 적어주세요.
+# 여기서는 예시로 '해안_침수_데이터.csv' 또는 업로드하신 데이터 형식을 참고합니다.
+CSV_FILE = "서울_기온.csv"  # 👈 실제 해안 데이터 파일명으로 변경하여 사용하세요!
+
+try:
+    # 한글 깨짐 방지를 위해 encoding="cp949" 적용
+    df = pd.read_csv(CSV_FILE, encoding="cp949")
+    
+    # [ 첫 줄을 그대로 복사 ] 한 열 이름 확인 및 시간 데이터 변환
+    # '일시' 열을 datetime 객체로 변환하여 시계열 분석이 가능하도록 합니다.
+    if '일시' in df.columns:
+        df['일시'] = pd.to_datetime(df['일시'])
+        df = df.sort_values(by='일시')
+    
+    # 3. 사이드바 - 필터링 및 대시보드 제어
+    st.sidebar.header("🔍 데이터 필터링")
+    
+    # 지역/지점 선택 (데이터에 '지점명'이 있는 경우)
+    if '지점명' in df.columns:
+        location = st.sidebar.selectbox("분석 지역 선택", df['지점명'].unique())
+        filtered_df = df[df['지점명'] == location]
+    else:
+        filtered_df = df
+
+    # 분석할 수치 데이터 열 선택 (예: 기온, 조위, 해수면 높이 등)
+    # 수치형 데이터가 있는 열을 자동으로 감지합니다.
+    numeric_cols = filtered_df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+    
+    if numeric_cols:
+        target_col = st.sidebar.selectbox("분석할 지표 선택", numeric_cols, index=0)
+        
+        # 침수 위험 임계치 설정 슬라이더
+        min_val = float(filtered_df[target_col].min())
+        max_val = float(filtered_df[target_col].max())
+        mean_val = float(filtered_df[target_col].mean())
+        threshold = st.sidebar.slider("⚠️ 침수 위험 임계치 기준 설정", min_val, max_val, mean_val)
+    else:
+        st.error("시각화할 수 있는 수치형 데이터 열이 없습니다.")
+        st.stop()
+
+    # 4. 주요 지표(Metrics) 화면 표시
+    st.subheader("📊 주요 모니터링 지표")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(label=f"최고 기록 ({target_col})", value=f"{filtered_df[target_col].max():.2f}")
+    with col2:
+        # 설정한 임계치를 초과한 횟수 계산
+        danger_count = len(filtered_df[filtered_df[target_col] >= threshold])
+        st.metric(label="⚠️ 임계치 초과 및 침수 위험 횟수", value=f"{danger_count}회")
+    with col3:
+        st.metric(label="평균 수치", value=f"{filtered_df[target_col].mean():.2f}")
+
+    # 5. 그래프 시각화 (streamlit과 pandas만 사용)
+    st.markdown("---")
+    
+    # ① [ 보고 싶은 그래프 1 ] : 시간별 변화 추이 및 위험도 선형 그래프
+    st.subheader(f"① 시간별 {target_col} 변화 추이 (침수 위험선 포함)")
+    
+    # 차트용 데이터프레임 가공 (X축: 일시, Y축: 선택한 수치 및 임계치선)
+    chart_df = filtered_df.set_index('일시')[[target_col]].copy()
+    chart_df['침수 위험 기준선'] = threshold
+    
+    # Streamlit 내장 라인 차트 사용
+    st.line_chart(chart_df)
+    st.caption("💡 그래프의 붉은색/평행선(기준선)보다 높은 지점은 침수 위험이 높은 시간대입니다.")
+
+    # ② [ 보고 싶은 그래프 2 ] : 기간별 위험 영역 분석 (영역 차트)
+    st.subheader(f"② {target_col} 위험 구역 시각화 (Area Chart)")
+    
+    # 수치 변화를 더 직관적으로 채워서 보여주는 영역 차트
+    st.area_chart(filtered_df.set_index('일시')[target_col])
+
+    # 6. 원본 데이터 테이블 표시
+    st.markdown("---")
+    st.subheader("📋 전체 데이터 확인")
+    with st.expander("데이터프레임 확인하기"):
+        st.dataframe(filtered_df)
+
+except FileNotFoundError:
+    st.error(f"📁 폴더 내에 '{CSV_FILE}' 파일이 존재하지 않습니다. 파일 이름을 확인해 주세요.")
+except Exception as e:
+    st.error(f"오류가 발생했습니다: {e}")
 
